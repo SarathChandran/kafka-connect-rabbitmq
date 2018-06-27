@@ -20,6 +20,9 @@ import com.github.jcustenborder.kafka.connect.utils.data.SourceRecordConcurrentL
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.RecoveryListener;
+import com.rabbitmq.client.Recoverable;
+import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.errors.RetriableException;
 import org.apache.kafka.connect.source.SourceRecord;
@@ -31,6 +34,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public class RabbitMQSourceTask extends SourceTask {
@@ -38,6 +42,7 @@ public class RabbitMQSourceTask extends SourceTask {
   RabbitMQSourceConnectorConfig config;
   SourceRecordConcurrentLinkedDeque records;
   ConnectConsumer consumer;
+  int bindAttempts = 100;
 
   @Override
   public String version() {
@@ -57,28 +62,70 @@ public class RabbitMQSourceTask extends SourceTask {
     try {
       log.info("Opening connection to {}:{}/{}", this.config.host, this.config.port, this.config.virtualHost);
       this.connection = connectionFactory.newConnection();
+      if (connectionFactory.isAutomaticRecoveryEnabled()) {
+        ((AutorecoveringConnection) connection).addRecoveryListener(new AutoRecovery());
+        log.info("AutoRecover listener added for recovery...");
+      }
     } catch (IOException | TimeoutException e) {
       throw new ConnectException(e);
     }
+    configConsumer(false);
+  }
 
-    try {
-      log.info("Creating Channel");
-      this.channel = this.connection.createChannel();
-    } catch (IOException e) {
-      throw new ConnectException(e);
+  class AutoRecovery implements RecoveryListener {
+
+    @Override
+    public void handleRecovery(Recoverable recoverable) {
+      log.info("Recovery being handled...");
+      bindAttempts = 100;
+      configConsumer(true);
     }
 
-    for (String queue : this.config.queues) {
-      try {
-        log.info("Starting consumer");
-        this.channel.basicConsume(queue, this.consumer);
-        log.info("Setting channel.basicQos({}, {});", this.config.prefetchCount, this.config.prefetchGlobal);
-        this.channel.basicQos(this.config.prefetchCount, this.config.prefetchGlobal);
-      } catch (IOException ex) {
-        throw new ConnectException(ex);
+    @Override
+    public void handleRecoveryStarted(Recoverable recoverable) {
+      log.info("Start recovery being called...");
+    }
+  }
+
+  private void configConsumer(boolean isRecovery) {
+    while (this.bindAttempts > 0) {
+      log.info("Bind attempts remaining {}", bindAttempts);
+
+      if (!isRecovery) {
+        try {
+          log.info("Creating Channel");
+          this.channel = this.connection.createChannel();
+        } catch (IOException e) {
+          throw new ConnectException(e);
+        }
+      }
+
+      for (String queue : this.config.queues) {
+        try {
+          TimeUnit.SECONDS.sleep(1);
+          log.info("Starting consumer");
+          if (this.config.autoCreate) {
+            this.channel.queueDeclare(queue, false, false, false, null);
+          }
+          if (!this.config.routingKey.isEmpty()) {
+            log.info("Declaring exchange: {} and binding it to queue: {}", this.config.exchange, queue);
+            this.channel.exchangeDeclarePassive(this.config.exchange);
+            this.channel.queueBind(queue, this.config.exchange, this.config.routingKey);
+            log.info("Queue {} bound to exchange {}", queue, this.config.exchange);
+          }
+          this.channel.basicConsume(queue, this.consumer);
+          log.info("Setting channel.basicQos({}, {});", this.config.prefetchCount, this.config.prefetchGlobal);
+          this.channel.basicQos(this.config.prefetchCount, this.config.prefetchGlobal);
+          this.bindAttempts = 0;
+        } catch (IOException ex) {
+          this.bindAttempts--;
+          if (this.bindAttempts == 0) throw new ConnectException(ex);
+          else configConsumer(false);
+        } catch (InterruptedException ie) {
+          log.info("Thread Interrupted..");
+        }
       }
     }
-
   }
 
   @Override

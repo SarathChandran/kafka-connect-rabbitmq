@@ -30,6 +30,15 @@ class RabbitMQSourceConnectorConfig extends RabbitMQConnectorConfig {
   public static final String QUEUE_CONF = "rabbitmq.queue";
   static final String QUEUE_DOC = "rabbitmq.queue";
 
+  public static final String AUTO_CREATE_QUEUE_CONF = "rabbitmq.queue.autocreate";
+  static final String AUTO_CREATE_QUEUE_DOC = "Creates a queue in rabbitmq if not present already";
+
+  public static final String EXCHANGE_CONF = "rabbitmq.exchange";
+  static final String EXCHANGE_DOC = "rabbitmq.exchange";
+
+  public static final String ROUTING_KEY_CONF = "rabbitmq.routing.key";
+  static final String ROUTING_KEY_DOC = "Binds the queue to the exchange if provided with routing key";
+
   public static final String PREFETCH_COUNT_CONF = "rabbitmq.prefetch.count";
   static final String PREFETCH_COUNT_DOC = "Maximum number of messages that the server will deliver, 0 if unlimited. " +
       "See `Channel.basicQos(int, boolean) <https://www.rabbitmq.com/releases/rabbitmq-java-client/current-javadoc/com/rabbitmq/client/Channel.html#basicQos-int-boolean->`_";
@@ -41,6 +50,9 @@ class RabbitMQSourceConnectorConfig extends RabbitMQConnectorConfig {
 
   public final StructTemplate kafkaTopic;
   public final List<String> queues;
+  public final boolean autoCreate;
+  public final String exchange;
+  public final String routingKey;
   public final int prefetchCount;
   public final boolean prefetchGlobal;
 
@@ -51,6 +63,9 @@ class RabbitMQSourceConnectorConfig extends RabbitMQConnectorConfig {
     this.kafkaTopic = new StructTemplate();
     this.kafkaTopic.addTemplate(KAFKA_TOPIC_TEMPLATE, kafkaTopicFormat);
     this.queues = this.getList(QUEUE_CONF);
+    this.autoCreate = this.getBoolean(AUTO_CREATE_QUEUE_CONF);
+    this.exchange = this.getString(EXCHANGE_CONF);
+    this.routingKey = this.getString(ROUTING_KEY_CONF);
     this.prefetchCount = this.getInt(PREFETCH_COUNT_CONF);
     this.prefetchGlobal = this.getBoolean(PREFETCH_GLOBAL_CONF);
   }
@@ -60,6 +75,9 @@ class RabbitMQSourceConnectorConfig extends RabbitMQConnectorConfig {
         .define(TOPIC_CONF, ConfigDef.Type.STRING, ConfigDef.Importance.HIGH, TOPIC_DOC)
         .define(PREFETCH_COUNT_CONF, ConfigDef.Type.INT, 0, ConfigDef.Importance.MEDIUM, PREFETCH_COUNT_DOC)
         .define(PREFETCH_GLOBAL_CONF, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.MEDIUM, PREFETCH_GLOBAL_DOC)
-        .define(QUEUE_CONF, ConfigDef.Type.LIST, ConfigDef.Importance.HIGH, QUEUE_DOC);
+        .define(QUEUE_CONF, ConfigDef.Type.LIST, ConfigDef.Importance.HIGH, QUEUE_DOC)
+        .define(AUTO_CREATE_QUEUE_CONF, ConfigDef.Type.BOOLEAN, false, ConfigDef.Importance.LOW, AUTO_CREATE_QUEUE_DOC)
+        .define(EXCHANGE_CONF, ConfigDef.Type.STRING, "", ConfigDef.Importance.LOW, EXCHANGE_DOC)
+        .define(ROUTING_KEY_CONF, ConfigDef.Type.STRING, "", ConfigDef.Importance.LOW, ROUTING_KEY_DOC);
   }
 }
